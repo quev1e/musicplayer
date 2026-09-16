@@ -1,0 +1,36 @@
+{
+    "Моя музыка": [
+        {
+            "filepath": "C:\\Users\\yekat\\Downloads\\Telegram Desktop\\Lyric holic kagekidan - eclore.mp3",
+            "title": "Lyric holic kagekidan - eclore",
+            "artist": "Неизвестный исполнитель"
+        },
+        {
+            "filepath": "C:\\Users\\yekat\\Downloads\\Telegram Desktop\\Nightwish - Dark Chest of Wonders.mp3",
+            "title": "Nightwish - Dark Chest of Wonders",
+            "artist": "Неизвестный исполнитель"
+        },
+        {
+            "filepath": "C:\\Users\\yekat\\Downloads\\Telegram Desktop\\Perfume - Laser Beam.mp3",
+            "title": "Perfume - Laser Beam",
+            "artist": "Неизвестный исполнитель"
+        }
+    ],
+    "эпика": [
+        {
+            "filepath": "C:\\Users\\yekat\\Documents\\алгоритмы и структуры данных\\practice_1\\music\\Epica - Veniality.mp3",
+            "title": "Epica - Veniality",
+            "artist": "Неизвестный исполнитель"
+        },
+        {
+            "filepath": "C:\\Users\\yekat\\Downloads\\Telegram Desktop\\Epica - Sensorium.mp3",
+            "title": "Epica - Sensorium",
+            "artist": "Неизвестный исполнитель"
+        },
+        {
+            "filepath": "C:\\Users\\yekat\\Downloads\\Telegram Desktop\\Epica - Crimson Bow and Arrow.mp3",
+            "title": "Epica - Crimson Bow and Arrow",
+            "artist": "Неизвестный исполнитель"
+        }
+    ]
+}
