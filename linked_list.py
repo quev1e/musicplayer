@@ -1,4 +1,4 @@
-
+"""Реализация кольцевого двусвязного списка."""
 
 class LinkedListItem:
     """Узел связного списка"""
@@ -65,6 +65,7 @@ class LinkedList:
 
     @staticmethod
     def _calculate_length(first_item):
+        """Вычисляет длину кольцевого списка."""
         length = 1
         current = first_item
 
@@ -121,6 +122,7 @@ class LinkedList:
 
 
     def append(self, item):
+        """Добавление справа."""
         self.append_right(item)
 
     def remove(self, item):
@@ -213,7 +215,3 @@ class LinkedList:
         for _ in range(self._length):
             yield current.track
             current = current.previous_item
-
-
-
-

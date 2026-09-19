@@ -1,0 +1,87 @@
+QWidget {
+    font-family: "Comic Sans MS";
+    font-size: 18px;
+}
+
+QMainWindow {
+    background-color: #ffa1db;
+}
+
+QGroupBox {
+    color: #ffffff;
+    font-size: 16px;
+    font-weight: bold;
+    background-color: #202124;
+    border-radius: 12px;
+    margin-top: 14px;
+    padding: 12px;
+}
+
+
+QListWidget {
+    background-color: #292a2d;
+    color: #ffffff;
+    border: 1px solid #ffa1db;
+    border-radius: 8px;
+    padding: 4px;
+    outline: none;
+}
+
+QListWidget::item {
+    padding: 8px;
+    border-radius: 8px;
+}
+
+QListWidget::item:hover {
+    background-color: #3c4043;
+}
+
+QListWidget::item:selected {
+    background-color: #ffa1db;
+    color: #000000;
+}
+
+QLineEdit {
+    background-color: #292a2d;
+    color: #ffffff;
+    border: 1px solid #ffa1db;
+    border-radius: 6px;
+    padding: 8px;
+}
+
+QLineEdit:focus {
+    border: 2px solid #ffa1db;
+}
+
+QPushButton {
+    font-weight: bold;
+    background-color: #ffa1db;
+    color: #000000;
+    border: 0px solid #ffa1db;
+    border-radius: 6px;
+    padding: 8px 12px;
+}
+
+QPushButton:hover {
+    background-color: #3c4043;
+}
+
+QPushButton:pressed {
+    background-color: #ffa1db;
+}
+
+QPushButton#currentTrackButton {
+    min-height: 45px;
+    min-width: 50px;
+    font-size: 26px;
+}
+
+QLabel {
+    color: #ffa1db;
+    font-size: 20px;
+    font-weight: bold
+}
+
+QLabel#songname {
+    font-size: 22px;
+}

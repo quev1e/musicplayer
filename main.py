@@ -1,489 +1,571 @@
-import tkinter as tk
-from tkinter import filedialog, messagebox, simpledialog
-from pathlib import Path
+"""Модуль интерфейса музыкального плеера."""
+
+
+import sys
 import json
 
-import pygame
+from pathlib import Path
+from mutagen.id3 import ID3, ID3NoHeaderError
+from PyQt6.QtGui import QPixmap
+from PyQt6.QtCore import Qt
 
-from audioplayer import MUSIC_END, AudioPlayer
-from composition import Composition
+from PyQt6.QtWidgets import (
+    QApplication,
+    QWidget,
+    QPushButton,
+    QLabel,
+    QLineEdit,
+    QGroupBox,
+    QVBoxLayout,
+    QHBoxLayout,
+    QMainWindow,
+    QListWidget,
+    QListWidgetItem,
+    QMessageBox,
+    QFileDialog
+)
+
+from audioplayer import AudioPlayer
 from playlist import Playlist
+from composition import Composition
 
+class MusicPlayer(QMainWindow):
+    """Окно музыкального плеера."""
+    def __init__(self):
+        super().__init__()
 
-class MusicApp:
-    """Простой интерфейс музыкального плеера."""
+        self.setWindowTitle("Player")
+        self.resize(400, 600)
 
-    def __init__(self, root):
-        """Создаёт приложение."""
+        # Главный layout
+        self.main_layout = QHBoxLayout()
+        self.main_layout.setSpacing(15)
+        self.main_layout.setContentsMargins(20, 20, 20, 20)
 
-        self.root = root
-        self.root.title("Музыкальный плеер")
-        self.root.geometry("800x500")
-        self.root.minsize(700, 400)
+        # Центральный widget
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        central_widget.setLayout(self.main_layout)
 
-        pygame.init()
-        pygame.display.set_mode((1, 1))
-        
-        self.is_paused = False
-        self.stop_requested = False
-
+        self.data_file = Path("playlists.json")
+        self.default_cover = (
+            Path(__file__).parent
+            / "assets"
+            / "default_cover.png"
+        )
         self.player = AudioPlayer()
+        self.playlists = [] # хранит объекты Playlist
 
-        self.playlists = {}
+        self.selected_playlist = None
+        self.selected_track = None
+        self.current_playlist = None
+        self.current_track = None
 
-        self.playlist = Playlist(
-            "Моя музыка",
-            self.player,
+        self.is_playing = False
+        self.is_paused = False
+
+        # ТРИ ПАНЕЛИ
+        self.create_playlists_panel()
+        self.create_tracks_panel()
+        self.create_current_track_panel()
+
+        self.main_layout.setStretch(0, 1)
+        self.main_layout.setStretch(1, 2)
+        self.main_layout.setStretch(2, 1)
+
+    def create_playlists_panel(self):
+        """Создаёт левую панель плейлистов."""
+
+        self.playlist_panel = QGroupBox()
+        playlist_layout = QVBoxLayout()
+        playlist_layout.setContentsMargins(
+            15,
+            4,
+            15,
+            15,
         )
+        playlist_layout.setSpacing(15)
 
-        self.playlists["Моя музыка"] = self.playlist
-
-        self.create_interface()
-        self.load_playlists()
-
-        self.root.after(100, self.check_music_events)
-
-        self.root.protocol(
-            "WM_DELETE_WINDOW",
-            self.close,
-        )
-
-    def create_interface(self):
-        """Создаёт все элементы интерфейса."""
-        
-        icons_folder = Path(__file__).parent / "icons"
-
-        self.icons = {
-            "add": tk.PhotoImage(
-                file=icons_folder / "add.png",
-            ),
-            "delete": tk.PhotoImage(
-                file=icons_folder / "delete.png",
-            ),
-            "play": tk.PhotoImage(
-                file=icons_folder / "play.png",
-            ),
-            "pause": tk.PhotoImage(
-                file=icons_folder / "pause.png",
-            ),
-            "next": tk.PhotoImage(
-                file=icons_folder / "next.png",
-            ),
-            "previous": tk.PhotoImage(
-                file=icons_folder / "previous.png",
-            ),
-            "stop": tk.PhotoImage(
-                file=icons_folder / "stop.png",
-            ),
-        }
-
-        self.left_frame = tk.Frame(self.root)
-        self.left_frame.pack(
-            side=tk.LEFT,
-            fill=tk.Y,
-            padx=10,
-            pady=10,
+        playlists_panel_name = QLabel('Playlist')
+        playlists_panel_name.setFixedHeight(24)
+        playlists_panel_name.setAlignment(
+            Qt.AlignmentFlag.AlignLeft
+            | Qt.AlignmentFlag.AlignVCenter
         )
 
-        self.right_frame = tk.Frame(self.root)
-        self.right_frame.pack(
-            side=tk.LEFT,
-            fill=tk.BOTH,
-            expand=True,
-            padx=10,
-            pady=10,
+        self.playlist_list = QListWidget() # хранит str и объекты LinkedlistItem
+        self.playlist_list.currentItemChanged.connect(
+            self.on_playlist_selected
         )
 
-        playlists_label = tk.Label(
-            self.left_frame,
-            text="Плейлисты",
-            font=("Arial", 12, "bold"),
-        )
-        playlists_label.pack(pady=(0, 5))
+        self.load_playlists() # загружает список плейлистов в self.playlists
+        # отображает список плейтистов из self.playlists в self.playlist_list = QListWidget()
+        self.refresh_playlist_list()
 
-        self.playlists_box = tk.Listbox(
-            self.left_frame,
-            width=20,
-            height=20,
-        )
-        self.playlists_box.pack(
-            fill=tk.Y,
-            expand=True,
-        )
+        self.new_playlist_name = QLineEdit()
+        self.new_playlist_name.setPlaceholderText("Введите название плейлиста...")
 
-        self.playlists_box.insert(
-            tk.END,
-            self.playlist.title,
-        )
-        
-        self.playlists_box.bind(
-            "<<ListboxSelect>>",
-            self.select_playlist,
-        )
-        
-        playlist_buttons = tk.Frame(self.left_frame)
-        playlist_buttons.pack(
-            fill=tk.X,
-            pady=(10, 0),
-        )
+        self.create_playlist_button = QPushButton("Create Playlist")
+        self.create_playlist_button.clicked.connect(self.create_playlist)
 
-        new_playlist_button = tk.Button(
-            playlist_buttons,
-            image=self.icons["add"],
-            width=50,
-            height=50,
-            command=self.create_playlist,
+        self.delete_playlist_button = QPushButton("Delete Playlist")
+        self.delete_playlist_button.clicked.connect(self.delete_playlist)
+
+        playlist_layout.addWidget(playlists_panel_name)
+        playlist_layout.addWidget(self.playlist_list, 1)
+        playlist_layout.addWidget(self.new_playlist_name)
+        playlist_layout.addWidget(self.create_playlist_button)
+        playlist_layout.addWidget(self.delete_playlist_button)
+
+        self.playlist_panel.setLayout(playlist_layout)
+        self.main_layout.addWidget(self.playlist_panel)
+
+    def create_tracks_panel(self):
+        "Создаёт среднюю панель треков."
+
+        self.tracks_panel = QGroupBox()
+        tracks_layout = QVBoxLayout()
+        tracks_layout.setContentsMargins(
+            15,
+            4,
+            15,
+            15,
         )
-        
-        new_playlist_button.pack(
-            side=tk.LEFT,
-            expand=True,
-            fill=tk.X,
-            padx=2,
+        tracks_layout.setSpacing(15)
+
+        tracks_panel_name = QLabel("Tracks")
+        tracks_panel_name.setFixedHeight(24)
+        tracks_panel_name.setAlignment(
+            Qt.AlignmentFlag.AlignLeft
+            | Qt.AlignmentFlag.AlignVCenter
         )
 
-        delete_playlist_button = tk.Button(
-            playlist_buttons,
-            image=self.icons["delete"],
-            width=50,
-            height=50,
-            command=self.delete_playlist,
+        self.track_list = QListWidget()
+        self.track_list.currentItemChanged.connect(
+            self.on_track_selected
         )
-        delete_playlist_button.pack(
-            side=tk.LEFT,
-            expand=True,
-            fill=tk.X,
-            padx=2,
-)
-
-        tracks_label = tk.Label(
-            self.right_frame,
-            text="Композиции",
-            font=("Arial", 12, "bold"),
-        )
-        tracks_label.pack(pady=(0, 5))
-
-        self.buttons_frame = tk.Frame(self.right_frame)
-        self.buttons_frame.pack(
-            side=tk.BOTTOM,
-            fill=tk.X,
-            pady=(10, 0),
+        self.track_list.itemDoubleClicked.connect(
+            self.double_clicked
         )
 
-        self.tracks_box = tk.Listbox(
-            self.right_frame,
-            width=60,
-            height=18,
+        self.refresh_tracks()
+
+        # Кнопки перемещения выбранного трека
+        up_and_down_layout = QHBoxLayout()
+
+        self.up_track_button = QPushButton("Up")
+        self.up_track_button.clicked.connect(self.up_track)
+
+        self.down_track_button = QPushButton("Down")
+        self.down_track_button.clicked.connect(self.down_track)
+
+        up_and_down_layout.addWidget(self.up_track_button)
+        up_and_down_layout.addWidget(self.down_track_button)
+
+        self.add_track_button = QPushButton("Add")
+        self.add_track_button.clicked.connect(self.add_track)
+
+        self.delete_track_button = QPushButton("Delete")
+        self.delete_track_button.clicked.connect(self.delete_track)
+
+        tracks_layout.addWidget(tracks_panel_name)
+        tracks_layout.addWidget(self.track_list, 1)
+        tracks_layout.addLayout(up_and_down_layout)
+        tracks_layout.addWidget(self.add_track_button)
+        tracks_layout.addWidget(self.delete_track_button)
+
+        self.tracks_panel.setLayout(tracks_layout)
+        self.main_layout.addWidget(self.tracks_panel)
+
+    def create_current_track_panel(self):
+        """Создаёт панель текущего трека."""
+
+        self.current_track_panel = QGroupBox()
+        current_track_layout = QVBoxLayout()
+        current_track_layout.setContentsMargins(
+            15,
+            4,
+            15,
+            15,
         )
-        self.tracks_box.pack(
-            side=tk.TOP,
-            fill=tk.BOTH,
-            expand=True,
+        current_track_layout.setSpacing(15)
+
+        current_track_panel_name = QLabel("Now Playing")
+        current_track_panel_name.setFixedHeight(24)
+        current_track_panel_name.setAlignment(
+            Qt.AlignmentFlag.AlignLeft
+            | Qt.AlignmentFlag.AlignVCenter
         )
 
-        add_button = tk.Button(
-            self.buttons_frame,
-            image=self.icons["add"],
-            width=50,
-            height=50,
-            command=self.add_track,
-        )
-        add_button.pack(
-            side=tk.LEFT,
-            padx=3,
+        self.cover_label = QLabel()
+        self.cover_label.setFixedSize(350, 350)
+        self.cover_label.setAlignment(
+            Qt.AlignmentFlag.AlignCenter
         )
 
-        remove_button = tk.Button(
-            self.buttons_frame,
-            image=self.icons["delete"],
-            width=50,
-            height=50,
-            text="Удалить",
-            command=self.remove_track,
-        )
-        remove_button.pack(
-            side=tk.LEFT,
-            padx=3,
+        self.filepath_label = QLabel()
+        self.filepath_label.setObjectName(
+            "songname"
         )
 
-        play_button = tk.Button(
-            self.buttons_frame,
-            image=self.icons["play"],
-            width=50,
-            height=50,
-            command=self.play_selected,
-        )
-        play_button.pack(
-            side=tk.LEFT,
-            padx=3,
-        )
-        
-        previous_button = tk.Button(
-            self.buttons_frame,
-            image=self.icons["previous"],
-            width=50,
-            height=50,
-            command=self.previous_track,
-        )
-        previous_button.pack(
-            side=tk.LEFT,
-            padx=3,
-        )
-        
-        
-        pause_button = tk.Button(
-            self.buttons_frame,
-            image=self.icons["pause"],
-            width=50,
-            height=50,
-            command=self.pause_or_resume,
-        )
-        pause_button.pack(
-            side=tk.LEFT,
-            padx=3,
-)
+        cover_vlayout = QVBoxLayout()
 
-        next_button = tk.Button(
-            self.buttons_frame,
-            image=self.icons["next"],
-            width=50,
-            height=50,
-            command=self.next_track,
+        cover_hlayout = QHBoxLayout()
+        cover_hlayout.addStretch()
+        cover_hlayout.addWidget(self.cover_label)
+        cover_hlayout.addStretch()
+
+        cover_vlayout.addStretch()
+        cover_vlayout.addLayout(cover_hlayout)
+        cover_vlayout.addWidget(self.filepath_label)
+        cover_vlayout.addStretch()
+
+        buttons_layout = QHBoxLayout()
+
+        self.prev_button = QPushButton("⏮️")
+        self.prev_button.clicked.connect(self.on_prev_track)
+
+        self.play_pause_button = QPushButton("▶️")
+        self.play_pause_button.clicked.connect(self.play_or_pause)
+
+        self.next_button = QPushButton("⏭️")
+        self.next_button.clicked.connect(self.on_next_track)
+
+        self.stop_button = QPushButton("⏹️")
+        self.stop_button.clicked.connect(self.on_stop)
+
+        self.prev_button.setObjectName(
+            "currentTrackButton"
         )
-        next_button.pack(
-            side=tk.LEFT,
-            padx=3,
+        self.play_pause_button.setObjectName(
+            "currentTrackButton"
+        )
+        self.next_button.setObjectName(
+            "currentTrackButton"
+        )
+        self.stop_button.setObjectName(
+            "currentTrackButton"
         )
 
-        stop_button = tk.Button(
-            self.buttons_frame,
-            image=self.icons["stop"],
-            width=50,
-            height=50,
-            command=self.stop,
-        )
-        stop_button.pack(
-            side=tk.LEFT,
-            padx=3,
-        )
+        buttons_layout.addWidget(self.prev_button)
+        buttons_layout.addWidget(self.play_pause_button)
+        buttons_layout.addWidget(self.next_button)
+        buttons_layout.addWidget(self.stop_button)
 
-    def get_save_path(self):
-        """Возвращает путь к файлу сохранения."""
-        return Path(__file__).parent / "playlist.json"
+        current_track_layout.addWidget(current_track_panel_name)
+        current_track_layout.addLayout(cover_vlayout)
+        current_track_layout.addLayout(buttons_layout)
 
+        self.current_track_panel.setLayout(current_track_layout)
+        self.main_layout.addWidget(self.current_track_panel)
+
+        self.clear_current_track()
+
+
+    # СЛОТЫ ПЛЕЙЛИСТОВ
+    # Загрузка и обновление
     def save_playlists(self):
-        """Сохраняет все плейлисты в JSON-файл."""
+        """Сохраняет изменения в списке плейлистов в JSON-файл."""
 
-        data = {}
+        data = [playlist.to_dict() for playlist in self.playlists]
 
-        for name, playlist in self.playlists.items():
-            data[name] = []
-
-            for item in playlist:
-                data[name].append(
-                    {
-                        "filepath": item.track.filepath,
-                        "title": item.track.title,
-                        "artist": item.track.artist,
-                    }
-                )
-
-        with self.get_save_path().open(
-            "w",
+        with self.data_file.open(
+            "w", # перезаписываем файл с 0
             encoding="utf-8",
         ) as file:
+
             json.dump(
                 data,
                 file,
                 ensure_ascii=False,
-                indent=4,
+                indent=2,
             )
-    
+
     def load_playlists(self):
-        """Загружает все плейлисты из JSON-файла."""
+        """Загружает объекты Playlist в self.playlists из JSON-файла."""
 
-        save_path = self.get_save_path()
-
-        if not save_path.exists():
-            self.refresh_tracks()
+        if not self.data_file.exists():
             return
 
-        with save_path.open(
-            "r",
-            encoding="utf-8",
-        ) as file:
-            data = json.load(file)
+        try:
+            with self.data_file.open(
+                "r",
+                encoding="utf-8",
+            ) as file:
+                data = json.load(file)
+
+        except json.JSONDecodeError:
+            QMessageBox.warning(
+                self,
+                "Ошибка файла",
+                "Файл playlists.json повреждён.",
+            )
+            return
+
+        if not isinstance(data, list):
+            QMessageBox.warning(
+                self,
+                "Ошибка данных",
+                "Корень JSON должен быть списком.",
+            )
+            return
 
         self.playlists.clear()
 
-        for name, tracks in data.items():
-            playlist = Playlist(
-                name,
-                self.player,
-            )
+        for playlist_data in data:
+            playlist = Playlist.from_dict(playlist_data, self.player)
+            self.playlists.append(playlist)
 
-            for track_data in tracks:
-                filepath = Path(track_data["filepath"])
+    def refresh_playlist_list(self):
+        """Отображает список плейлистов из self.playlists 
+        в self.playlist_list = QListWidget()."""
 
-                if not filepath.is_file():
-                    continue
+        self.playlist_list.clear()
 
-                song = Composition(
-                    filepath=str(filepath),
-                    title=track_data["title"],
-                    artist=track_data["artist"],
-                )
+        for playlist in self.playlists:
+            item = QListWidgetItem(playlist.title)
+            item.setData(Qt.ItemDataRole.UserRole, playlist)
+            self.playlist_list.addItem(item)
 
-                playlist.append(song)
+    # Обработка кнопок
+    def on_playlist_selected(self, current, previous):
+        """Обрабатывает выбор плейлиста."""
 
-            self.playlists[name] = playlist
+        if current is None:
+            self.selected_playlist = None
+            self.selected_track = None
+            self.refresh_tracks()
+            return
 
-        if not self.playlists:
-            self.playlist = Playlist(
-                "Моя музыка",
-                self.player,
-            )
-            self.playlists["Моя музыка"] = self.playlist
-        else:
-            first_name = next(iter(self.playlists))
-            self.playlist = self.playlists[first_name]
+        self.selected_playlist = current.data(Qt.ItemDataRole.UserRole)
+        self.selected_track = None
 
-        self.playlists_box.delete(
-            0,
-            tk.END,
-        )
+        self.track_list.blockSignals(True)
 
-        for name in self.playlists:
-            self.playlists_box.insert(
-                tk.END,
-                name,
-            )
+        try:
+            self.refresh_tracks()
+        finally:
+            self.track_list.blockSignals(False)
 
-        self.playlists_box.selection_set(0)
-        self.refresh_tracks()
-    
     def create_playlist(self):
-        """Создаёт новый плейлист."""
+        """Создаёт плейлист с названием из self.new_playlist_name."""
 
-        name = simpledialog.askstring(
-            "Новый плейлист",
-            "Введите название плейлиста:",
-            parent=self.root,
-        )
+        title = self.new_playlist_name.text().strip()
 
-        if name is None:
-            return
-
-        name = name.strip()
-
-        if not name:
-            messagebox.showwarning(
-                "Ошибка",
-                "Название не может быть пустым.",
+        if not title:
+            QMessageBox.warning(
+                self,
+                "Пустое название",
+                "Введите название плейлиста.",
             )
             return
 
-        if name in self.playlists:
-            messagebox.showwarning(
-                "Ошибка",
-                "Плейлист с таким названием уже существует.",
+        if any(
+            playlist.title == title for playlist in self.playlists
+        ):
+            QMessageBox.warning(
+                self,
+                "Дубликат",
+                "Такое название уже есть.",
             )
             return
 
-        new_playlist = Playlist(
-            name,
-            self.player,
-        )
+        playlist = Playlist(title, self.player)
+        self.playlists.append(playlist)
 
-        self.playlists[name] = new_playlist
-
-        self.playlists_box.insert(
-            tk.END,
-            name,
-        )
-
-        last_index = self.playlists_box.size() - 1
-
-        self.playlists_box.selection_clear(
-            0,
-            tk.END,
-        )
-        self.playlists_box.selection_set(last_index)
-
-        self.playlist = new_playlist
-        self.refresh_tracks()
         self.save_playlists()
-    
-    
-    def select_playlist(self, event=None):
-        """Переключает текущий плейлист."""
+        self.refresh_playlist_list()
+        self.new_playlist_name.clear()
+        self.playlist_list.setCurrentRow(
+            self.playlist_list.count() - 1
+        )
 
-        selected = self.playlists_box.curselection()
-
-        if not selected:
-            return
-
-        index = selected[0]
-        name = self.playlists_box.get(index)
-
-        self.playlist = self.playlists[name]
-        self.refresh_tracks()
-    
     def delete_playlist(self):
         """Удаляет выбранный плейлист."""
 
-        selected = self.playlists_box.curselection()
-
-        if not selected:
-            messagebox.showwarning(
-                "Предупреждение",
-                "Сначала выберите плейлист.",
-            )
+        if not self.validate_selection(
+            require_track=False
+        ):
             return
 
-        index = selected[0]
-        name = self.playlists_box.get(index)
+        deleted_playlist = self.selected_playlist
+        deleting_current_playlist = deleted_playlist is self.current_playlist
 
-        if len(self.playlists) == 1:
-            messagebox.showwarning(
-                "Предупреждение",
-                "Нельзя удалить последний плейлист.",
-            )
-            return
+        self.playlists.remove(deleted_playlist)
 
-        answer = messagebox.askyesno(
-            "Удаление",
-            f"Удалить плейлист «{name}»?",
-        )
-
-        if not answer:
-            return
-
-        if self.playlist is self.playlists[name]:
+        if deleting_current_playlist:
             self.player.stop()
 
-        del self.playlists[name]
+            self.current_playlist = None
+            self.current_track = None
+            self.set_stopped_state()
 
-        self.playlists_box.delete(index)
+        self.selected_playlist = None
+        self.selected_track = None
 
-        self.playlists_box.selection_set(0)
+        self.save_playlists()
+        self.refresh_playlist_list()
 
-        first_name = self.playlists_box.get(0)
-        self.playlist = self.playlists[first_name]
+        if not self.playlists:
+            self.refresh_tracks()
+            self.clear_current_track()
+            return
 
-        self.refresh_tracks()
+        self.playlist_list.setCurrentRow(0)
+
+    # СЛОТЫ ТРЕКОВ
+    # Обновление
+    def refresh_tracks(self):
+        """Отображает список треков выбранного плейлиста."""
+
+        self.track_list.clear()
+
+        if self.selected_playlist is None:
+            return
+
+        for node in self.selected_playlist:
+            path = Path(node.track.filepath).name[:-4]
+            item = QListWidgetItem(path)
+            item.setData(Qt.ItemDataRole.UserRole, node)
+            self.track_list.addItem(item)
+
+    # Валидатор
+    def validate_selection(self, require_track=True, require_tracks_in_playlist=False):
+        """Проверяет выбранные плейлист и трек."""
+
+        if self.selected_playlist is None:
+            QMessageBox.warning(
+                self,
+                "Ошибка",
+                "Выберите плейлист.",
+            )
+            return False
+
+        if require_track and self.selected_track is None:
+            QMessageBox.warning(
+                self,
+                "Ошибка",
+                "Выберите трек.",
+            )
+            return False
+
+        if require_tracks_in_playlist and len(self.selected_playlist) == 0:
+            QMessageBox.warning(
+                self,
+                "Ошибка",
+                "Плейлист пуст.",
+            )
+            return False
+
+        return True
+
+    # Вспомогательные функции
+    def set_playing_state(self):
+        """Устанавливает состояние воспроизведения."""
+
+        self.is_playing = True
+        self.is_paused = False
+        self.play_pause_button.setText(
+            "⏸️"
+        )
+
+    def set_paused_state(self):
+        """Устанавливает состояние паузы."""
+
+        self.is_playing = False
+        self.is_paused = True
+        self.play_pause_button.setText(
+            "▶️"
+        )
+
+    def set_stopped_state(self):
+        """Устанавливает остановленное состояние."""
+
+        self.is_playing = False
+        self.is_paused = False
+        self.play_pause_button.setText(
+            "▶️"
+        )
+
+    # Обработка кнопок
+    def on_track_selected(self, current, previous):
+        """Обрабатывает выбор трека."""
+
+        if current is None:
+            self.selected_track = None
+            return
+
+        self.selected_track = current.data(Qt.ItemDataRole.UserRole)
+
+        if self.current_track:
+            return
+
+        composition = self.selected_track.track
+
+        self.show_composition(composition)
+
+    def move_track_up_or_down(self, direction):
+        """Перемещает выбранный трек."""
+
+        if not self.validate_selection():
+            return
+
+        current_row = self.track_list.currentRow()
+        last_row = self.track_list.count() - 1
+
+        if direction == "up":
+            if current_row <= 0:
+                return
+
+            new_row = current_row - 1
+            self.selected_playlist.move_up(
+                self.selected_track
+            )
+
+        else:
+            if current_row >= last_row:
+                return
+
+            new_row = current_row + 1
+            self.selected_playlist.move_down(
+                self.selected_track
+            )
+
         self.save_playlists()
 
+        self.track_list.blockSignals(True)
+
+        try:
+            self.refresh_tracks()
+            self.track_list.setCurrentRow(new_row)
+        finally:
+            self.track_list.blockSignals(False)
+
+        self.selected_track = (
+            self.track_list.currentItem().data(
+                Qt.ItemDataRole.UserRole
+            )
+        )
+
+    def up_track(self):
+        "Поднимает выбранный трек вверх в очереди на 1."
+        self.move_track_up_or_down("up")
+
+    def down_track(self):
+        "Опускает выбранный трек вверх в очереди на 1."
+        self.move_track_up_or_down("down")
 
     def add_track(self):
-        """Добавляет аудиофайл через диалоговое окно."""
+        "Добавляет  в плейлист трек с заданным filepath."
 
-        filepath = filedialog.askopenfilename(
-            title="Выберите аудиофайл",
-            filetypes=[
-                ("Audio files", "*.mp3 *.wav *.ogg"),
-                ("All files", "*.*"),
-            ],
+        if not self.validate_selection(require_track=False):
+            return
+
+        filepath, _ = QFileDialog.getOpenFileName(
+            self,
+            "Выберите аудиофайл",
+            "",
+            "Audio Files (*.mp3 *.wav *.ogg);;All Files (*)",
         )
 
         if not filepath:
@@ -491,163 +573,258 @@ class MusicApp:
 
         path = Path(filepath)
 
-        song = Composition(
-            filepath=str(path),
-            title=path.stem,
-            artist="Неизвестный исполнитель",
+        for node in self.selected_playlist:
+            if node.track.filepath == str(path):
+                QMessageBox.warning(
+                    self,
+                    "Дубликат",
+                    "Этот трек уже есть в плейлисте.",
+                )
+                return
+
+        composition = Composition(filepath=str(path))
+
+        self.selected_playlist.append(composition)
+        self.save_playlists()
+        self.refresh_tracks()
+        self.track_list.setCurrentRow(
+            self.track_list.count() - 1
         )
 
-        self.playlist.append(song)
+    def delete_track(self):
+        "Удаляет выбранный трек из плейлиста."
+
+        if not self.validate_selection():
+            return
+
+        self.selected_playlist.remove(self.selected_track)
+        self.selected_track = None
+        self.clear_current_track()
         self.save_playlists()
         self.refresh_tracks()
 
-    def remove_track(self):
-        """Удаляет выбранный трек."""
+    # ТЕКУЩИЙ ТРЕК
+    # Обработка обложки
+    def show_default_cover(self):
+        """Показывает обложку текущего трека по умолчанию."""
 
-        selected = self.tracks_box.curselection()
+        pixmap = QPixmap(
+            str(self.default_cover)
+        )
 
-        if not selected:
-            messagebox.showwarning(
-                "Предупреждение",
-                "Сначала выберите трек.",
-            )
+        if pixmap.isNull():
+            self.cover_label.clear()
+            self.cover_label.setText("No cover")
             return
 
-        index = selected[0]
-        item = self.playlist[index]
+        pixmap = pixmap.scaled(
+            self.cover_label.size(),
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
 
-        if item is self.playlist.current:
-            self.player.stop()
-            self.stop_requested = True
-            self.is_paused = False
-            self.playlist.clear_current()
+        self.cover_label.setPixmap(pixmap)
 
-        self.playlist.remove(item)
-        self.save_playlists()
-        self.refresh_tracks()
+    def get_embedded_cover(self, filepath):
+        """Извлекает встроенную обложку трека из .mp3."""
 
-    def play_selected(self):
-        """Воспроизводит выбранный трек."""
+        try:
+            tags = ID3(filepath)
+        except ID3NoHeaderError:
+            return None
 
-        selected = self.tracks_box.curselection()
+        for key in tags:
+            if key.startswith("APIC"):
+                return tags[key].data
 
-        if not selected:
-            messagebox.showwarning(
-                "Предупреждение",
-                "Сначала выберите трек.",
-            )
+        return None
+
+    def show_cover(self, filepath):
+        """Показывает встроенную обложку 
+        трека или изображение по умолчанию."""
+
+        cover_data = self.get_embedded_cover(
+            filepath
+        )
+
+        if cover_data is None:
+            self.show_default_cover()
             return
 
-        index = selected[0]
-        item = self.playlist[index]
+        pixmap = QPixmap()
 
-        self.stop_requested = False
-        self.is_paused = False
+        if not pixmap.loadFromData(cover_data):
+            self.show_default_cover()
+            return
 
-        self.playlist.play_all(item.track)
-        self.select_current_track()
-    
-    def pause_or_resume(self):
-        """Ставит музыку на паузу или продолжает её."""
+        pixmap = pixmap.scaled(
+            self.cover_label.size(),
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
 
-        if self.playlist.current is None:
+        self.cover_label.setPixmap(pixmap)
+
+    # Обновление панели треков
+    def show_composition(self, composition):
+        """Отображение выбранного трека в правой панели."""
+        filename = Path(
+            composition.filepath
+        ).name
+
+        self.filepath_label.setText(
+            f"{filename[:-4]}"
+        )
+
+        self.show_cover(composition.filepath)
+
+    def clear_current_track(self):
+        """Состояние правой панели если текущего трека нет."""
+
+        if self.selected_track is not None:
+            return
+
+        self.player.stop()
+        self.set_stopped_state()
+
+        self.filepath_label.setText(
+            "Choose a track . . ."
+        )
+        self.show_default_cover()
+
+    # Слоты текущего трека
+    def move_current_track(self, direction):
+        """Переходит к соседнему треку."""
+
+        if not self.validate_selection(require_tracks_in_playlist=True):
+            return
+
+        if self.selected_playlist.current is None:
+            self.selected_playlist._current_item = (
+                self.selected_playlist.first_item
+            )
+
+            self.selected_playlist.player.play(
+                self.selected_playlist.current.track.filepath
+            )
+        elif direction == 'next':
+            self.selected_playlist.next_track()
+        else:
+            self.selected_playlist.previous_track()
+
+        self.selected_track = self.selected_playlist.current
+        self.current_playlist = self.selected_playlist
+        self.current_track = self.selected_track
+
+        self.show_composition(self.selected_track.track)
+
+        self.track_list.blockSignals(True)
+
+        try:
+            self.refresh_tracks()
+
+            for row in range(self.track_list.count()):
+                item = self.track_list.item(row)
+                node = item.data(
+                    Qt.ItemDataRole.UserRole
+                )
+
+                if node is self.selected_track:
+                    self.track_list.setCurrentRow(row)
+                    break
+
+        finally:
+            self.track_list.blockSignals(False)
+
+        self.set_playing_state()
+
+    def on_next_track(self):
+        """Переходит к следующему треку."""
+        self.move_current_track("next")
+
+    def on_prev_track(self):
+        """Переходит к предыдущему треку."""
+        self.move_current_track("previous")
+
+    def on_stop(self):
+        """Останавливает воспроизведение трека."""
+
+        self.player.stop()
+
+        self.selected_track = None
+        self.current_track = None
+        self.current_playlist = None
+
+        self.set_stopped_state()
+
+        self.track_list.clearSelection()
+        self.clear_current_track()
+
+    def play_or_pause(self):
+        """Ставит трек на паузу или снимает с паузы."""
+
+        if not self.validate_selection():
+            return
+
+        if self.is_playing:
+            self.player.pause()
+            self.set_paused_state()
             return
 
         if self.is_paused:
             self.player.resume()
-            self.is_paused = False
+            self.set_playing_state()
+            return
+
+        self.selected_playlist.play_all(self.selected_track)
+        self.current_playlist = self.selected_playlist
+        self.current_track = self.selected_track
+        self.set_playing_state()
+
+    def double_clicked(self, item):
+        """Обрабатывает случай двойного нажатия на трек в списке."""
+
+        if not self.validate_selection(require_track=False):
+            return
+
+        clicked_item = item.data(Qt.ItemDataRole.UserRole)
+        self.selected_track = clicked_item
+
+        if self.current_track == clicked_item:
+            self.play_or_pause()
+
         else:
-            self.player.pause()
-            self.is_paused = True
+            self.selected_playlist.play_all(clicked_item)
+            self.current_playlist = self.selected_playlist
+            self.current_track = clicked_item
+            self.selected_track = clicked_item
 
-    def next_track(self):
-        """Переходит к следующему треку."""
+            self.set_playing_state()
 
-        if self.stop_requested:
-            return
+            self.show_composition(self.current_track.track)
 
-        if self.playlist.current is None:
-            return
-
-        self.playlist.next_track()
-        self.is_paused = False
-        self.select_current_track()
-    
-    def previous_track(self):
-            """Переходит к предыдущему треку."""
-    
-            if self.stop_requested:
-                return
-    
-            if self.playlist.current is None:
-                return
-    
-            self.playlist.previous_track()
-            self.is_paused = False
-            self.select_current_track()
-
-    def stop(self):
-        """Останавливает музыку без запуска следующего трека."""
-
-        self.stop_requested = True
-        self.is_paused = False
-        self.player.stop()
-
-    def refresh_tracks(self):
-        """Обновляет список треков на экране."""
-
-        self.tracks_box.delete(
-            0,
-            tk.END,
-        )
-
-        for item in self.playlist:
-            self.tracks_box.insert(
-                tk.END,
-                str(item.track),
-            )
-
-    def select_current_track(self):
-        """Выделяет текущий трек."""
-
-        current_item = self.playlist.current
-
-        if current_item is None:
-            return
-
-        for index, item in enumerate(self.playlist):
-            if item is current_item:
-                self.tracks_box.selection_clear(
-                    0,
-                    tk.END,
-                )
-                self.tracks_box.selection_set(index)
-                self.tracks_box.see(index)
-                break
-
-    def check_music_events(self):
-        """Проверяет окончание текущего трека."""
-
-        for event in pygame.event.get():
-            if event.type == MUSIC_END:
-                if not self.stop_requested:
-                    self.next_track()
-
-        self.root.after(
-            100,
-            self.check_music_events,
-        )
-
-    def close(self):
-        """Сохраняет данные и закрывает приложение."""
-
-        self.save_playlists()
+    def closeEvent(self, event):
+        """Закрывает плеер."""
         self.player.close()
-        pygame.quit()
-        self.root.destroy()
+        event.accept()
 
+def load_stylesheet(app):
+    """Загружает стили приложения."""
 
+    style_path = (
+        Path(__file__).parent / "style.qss"
+    )
 
-root = tk.Tk()
-app = MusicApp(root)
-root.mainloop()
+    app.setStyleSheet(
+        style_path.read_text(
+            encoding="utf-8"
+        )
+    )
+
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    load_stylesheet(app)
+    window = MusicPlayer()
+    window.show()
+    sys.exit(app.exec())
+    
